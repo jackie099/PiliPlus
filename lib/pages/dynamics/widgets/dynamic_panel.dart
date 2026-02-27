@@ -10,6 +10,7 @@ import 'package:PiliPlus/pages/dynamics/widgets/interaction.dart';
 import 'package:PiliPlus/utils/extension/theme_ext.dart';
 import 'package:PiliPlus/utils/page_utils.dart';
 import 'package:PiliPlus/utils/platform_utils.dart';
+import 'package:PiliPlus/utils/sponsor_keyword_matcher.dart';
 import 'package:flutter/material.dart' hide InkWell;
 
 class DynamicPanel extends StatelessWidget {
@@ -92,6 +93,7 @@ class DynamicPanel extends StatelessWidget {
             ),
             if (item.modules.moduleDispute case final moduleDispute?)
               _buildDispute(theme, moduleDispute),
+            if (_isSponsor) _buildSponsorLabel(theme),
             ...dynContent(
               context,
               theme: theme,
@@ -206,6 +208,63 @@ class DynamicPanel extends StatelessWidget {
       title: title,
       cover: cover,
       bvid: bvid,
+    );
+  }
+
+  bool get _isSponsor {
+    final moduleDynamic = item.modules.moduleDynamic;
+    final text = moduleDynamic?.desc?.text ?? '';
+    final hasGoods =
+        moduleDynamic?.additional?.type == 'ADDITIONAL_TYPE_GOODS' ||
+        item.orig?.modules.moduleDynamic?.additional?.type ==
+            'ADDITIONAL_TYPE_GOODS';
+    return SponsorKeywordMatcher.isSponsor(
+      text: text,
+      hasGoodsCard: hasGoods,
+    );
+  }
+
+  Widget _buildSponsorLabel(ThemeData theme) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.fromLTRB(12, 2, 12, 6),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.orange.withValues(alpha: 0.15),
+        borderRadius: const BorderRadius.all(Radius.circular(6)),
+      ),
+      child: Text.rich(
+        style: TextStyle(
+          height: 1,
+          fontSize: 13,
+          color: theme.brightness.isLight
+              ? Colors.orange.shade800
+              : Colors.orange.shade300,
+        ),
+        strutStyle: const StrutStyle(
+          leading: 0,
+          height: 1,
+          fontSize: 13,
+        ),
+        TextSpan(
+          children: [
+            WidgetSpan(
+              alignment: PlaceholderAlignment.middle,
+              child: Padding(
+                padding: const EdgeInsets.only(right: 4),
+                child: Icon(
+                  size: 15,
+                  Icons.shopping_bag_outlined,
+                  color: theme.brightness.isLight
+                      ? Colors.orange.shade800
+                      : Colors.orange.shade300,
+                ),
+              ),
+            ),
+            const TextSpan(text: '疑似推广'),
+          ],
+        ),
+      ),
     );
   }
 

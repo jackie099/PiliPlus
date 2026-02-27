@@ -15,6 +15,7 @@ import 'package:PiliPlus/utils/date_utils.dart';
 import 'package:PiliPlus/utils/duration_utils.dart';
 import 'package:PiliPlus/utils/page_utils.dart';
 import 'package:PiliPlus/utils/platform_utils.dart';
+import 'package:PiliPlus/services/video_label_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 
@@ -184,6 +185,23 @@ class VideoCardH extends StatelessWidget {
                                 right: 6.0,
                                 bottom: 6.0,
                                 type: PBadgeType.gray,
+                              ),
+                            if (badge == null)
+                              FutureBuilder<String?>(
+                                future: VideoLabelService.instance
+                                    .getLabel(videoItem.bvid),
+                                builder: (context, snapshot) {
+                                  if (snapshot.data == null) {
+                                    return const SizedBox.shrink();
+                                  }
+                                  return PBadge(
+                                    top: 6,
+                                    left: 7,
+                                    size: PBadgeSize.small,
+                                    type: PBadgeType.primary,
+                                    text: snapshot.data!,
+                                  );
+                                },
                               ),
                           ],
                         );
