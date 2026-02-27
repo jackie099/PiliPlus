@@ -13,6 +13,7 @@ import 'package:PiliPlus/utils/date_utils.dart';
 import 'package:PiliPlus/utils/duration_utils.dart';
 import 'package:PiliPlus/utils/page_utils.dart';
 import 'package:PiliPlus/utils/platform_utils.dart';
+import 'package:PiliPlus/services/video_label_service.dart';
 import 'package:flutter/material.dart' hide LayoutBuilder;
 
 // 视频卡片 - 水平布局
@@ -153,6 +154,22 @@ class VideoCardH extends StatelessWidget {
                                 bottom: 6.0,
                                 type: .gray,
                               ),
+                            FutureBuilder<String?>(
+                              future: VideoLabelService.instance
+                                  .getLabel(videoItem.bvid),
+                              builder: (context, snapshot) {
+                                if (snapshot.data == null) {
+                                  return const SizedBox.shrink();
+                                }
+                                return PBadge(
+                                  top: 6,
+                                  left: 7,
+                                  size: .small,
+                                  type: .primary,
+                                  text: snapshot.data!,
+                                );
+                              },
+                            ),
                           ],
                         );
                       },

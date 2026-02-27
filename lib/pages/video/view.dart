@@ -1339,6 +1339,9 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
           return false;
         },
         onSkipSegment: videoDetailController.onSkipSegment,
+        onShowSBDetail: videoDetailController.plPlayerController.enableBlock
+            ? videoDetailController.showSBDetail
+            : null,
         child: child,
       );
     }
@@ -1556,6 +1559,35 @@ class _VideoDetailPageVState extends State<VideoDetailPageV>
                 );
               },
             ),
+          ),
+
+        // Category pill indicator
+        if (videoDetailController.plPlayerController.enableBlock)
+          Positioned(
+            right: 16,
+            top: isFullScreen ? 60 : 8,
+            child: Obx(() {
+              final segment = videoDetailController.currentSegment.value;
+              if (segment == null) return const SizedBox.shrink();
+              return Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: videoDetailController.blockConfig
+                      .blockColor[segment.segmentType.index]
+                      .withValues(alpha: 0.85),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  segment.segmentType.shortTitle,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              );
+            }),
           ),
 
         // for debug
