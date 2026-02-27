@@ -1,13 +1,20 @@
 import 'dart:async' show StreamSubscription, Timer;
+import 'dart:collection' show HashMap;
 import 'dart:math' as math;
 
 import 'package:PiliPlus/common/widgets/progress_bar/segment_progress_bar.dart';
+import 'package:PiliPlus/grpc/dm.dart';
 import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/http/sponsor_block.dart';
+import 'package:PiliPlus/models/common/sponsor_block/action_type.dart';
 import 'package:PiliPlus/models/common/sponsor_block/segment_model.dart';
 import 'package:PiliPlus/models/common/sponsor_block/segment_type.dart';
 import 'package:PiliPlus/models/common/sponsor_block/skip_type.dart';
 import 'package:PiliPlus/models_new/sponsor_block/segment_item.dart';
+import 'package:PiliPlus/pages/danmaku/controller.dart' show PlDanmakuController;
+import 'package:PiliPlus/pages/sponsor_block/port_video_dialog.dart';
+import 'package:PiliPlus/plugin/pl_player/controller.dart';
+import 'package:PiliPlus/utils/danmaku_time_parser.dart';
 import 'package:PiliPlus/utils/duration_utils.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:easy_debounce/easy_throttle.dart';
@@ -34,6 +41,14 @@ mixin BlockConfigMixin {
   Color _getColor(SegmentType segment) => blockColor[segment.index];
 }
 
+/// Wraps a segment + pre-skip position for the unskip button
+class UnskipItem {
+  final SegmentModel segment;
+  final Duration preSkipPosition;
+
+  const UnskipItem({required this.segment, required this.preSkipPosition});
+}
+
 mixin BlockMixin on GetxController {
   int? _lastBlockPos;
   BlockConfigMixin get blockConfig;
@@ -46,6 +61,13 @@ mixin BlockMixin on GetxController {
   late final listKey = GlobalKey<AnimatedListState>();
   late final List<Object> listData = [];
 
+  // Mute tracking
+  SegmentModel? _activeMuteSegment;
+  double? _preMuteVolume;
+
+  // Category pill observable
+  final Rxn<SegmentModel> currentSegment = Rxn();
+
   RxString? get videoLabel => null;
   Player? get player;
   bool get autoPlay;
@@ -54,14 +76,47 @@ mixin BlockMixin on GetxController {
   int get currPosInMilliseconds;
   bool get isFullScreen => false;
 
+  /// Override in controllers for port video dialog
+  String? get sbBvid => null;
+  int? get sbCid => null;
+  int? get sbVideoDuration => null;
+
   bool get isUgc;
   late final isBlock = isUgc || !blockConfig.enablePgcSkip;
+
+  /// Override in controllers that have owner info
+  int? get ownerMid => null;
+  String? get ownerName => null;
+
+  bool get isWhitelisted {
+    final mid = ownerMid;
+    if (mid == null) return false;
+    return Pref.blockWhitelistedChannels.any((e) => e['id'] == mid);
+  }
+
+  void toggleWhitelist() {
+    final mid = ownerMid;
+    final name = ownerName;
+    if (mid == null) return;
+    final list = Pref.blockWhitelistedChannels;
+    final idx = list.indexWhere((e) => e['id'] == mid);
+    if (idx >= 0) {
+      list.removeAt(idx);
+      SmartDialog.showToast('已从白名单移除');
+    } else {
+      list.add({'id': mid, 'name': name ?? mid.toString()});
+      SmartDialog.showToast('已添加到白名单');
+    }
+    Pref.setBlockWhitelistedChannels(list);
+  }
 
   Future<void> querySponsorBlock({
     required String bvid,
     required int cid,
   }) async {
     resetBlock();
+
+    if (isWhitelisted) return;
 
     final result = await SponsorBlock.getSkipSegments(bvid: bvid, cid: cid);
     switch (result) {
@@ -75,6 +130,64 @@ mixin BlockMixin on GetxController {
     }
   }
 
+  Future<void> parseDanmakuPOI({
+    required int cid,
+    required int videoDuration,
+  }) async {
+    if (!Pref.enableDanmakuTimeParsing || videoDuration <= 0) return;
+    try {
+      final totalSegments =
+          (videoDuration / PlDanmakuController.segmentLength).ceil();
+      // Collect all timestamps from all danmaku segments
+      final timestamps = <int>[];
+      for (int i = 0; i < totalSegments; i++) {
+        if (isClosed) return;
+        final res = await DmGrpc.dmSegMobile(cid: cid, segmentIndex: i + 1);
+        if (res case Success(:final response)) {
+          for (final elem in response.elems) {
+            timestamps.addAll(DanmakuTimeParser.parse(elem.content));
+          }
+        }
+      }
+      if (timestamps.isEmpty || isClosed) return;
+
+      // Group timestamps by ±3s buckets
+      timestamps.sort();
+      final buckets = HashMap<int, int>(); // bucket key -> count
+      for (final ts in timestamps) {
+        final key = (ts / 3000).round() * 3000;
+        buckets[key] = (buckets[key] ?? 0) + 1;
+      }
+
+      // Filter by consensus threshold (≥3 references)
+      final poiTimestamps =
+          buckets.entries.where((e) => e.value >= 3).map((e) => e.key).toList()
+            ..sort();
+      if (poiTimestamps.isEmpty || isClosed) return;
+
+      final color = blockConfig._getColor(SegmentType.poi_highlight);
+      for (final ts in poiTimestamps) {
+        final segment = SegmentModel(
+          uuid: 'danmaku-poi-$ts',
+          segmentType: SegmentType.poi_highlight,
+          segment: (ts, ts),
+          skipType: SkipType.showOnly,
+          actionType: ActionType.poi,
+        );
+        _segmentList.add(segment);
+        segmentProgressList.add(
+          Segment(
+            start: (ts / videoDuration).clamp(0.0, 1.0),
+            end: (ts / videoDuration).clamp(0.0, 1.0),
+            color: color,
+          ),
+        );
+      }
+    } catch (e) {
+      if (kDebugMode) debugPrint('parseDanmakuPOI: $e');
+    }
+  }
+
   void initSkip() {
     if (isClosed) return;
     if (_segmentList.isNotEmpty) {
@@ -84,12 +197,21 @@ mixin BlockMixin on GetxController {
         if (currentPos != _lastBlockPos) {
           _lastBlockPos = currentPos;
           final msPos = currentPos * 1000;
+
+          // Update category pill
+          _updateCurrentSegment(msPos);
+
+          // Handle mute segment exit
+          _checkMuteExit(msPos);
+
           for (SegmentModel item in _segmentList) {
-            // if (kDebugMode) {
-            //   debugPrint(
-            //       '${position.inSeconds},,${item.segment.first},,${item.segment.second},,${item.skipType.name},,${item.hasSkipped}');
-            // }
             if (msPos <= item.segment.$1 && item.segment.$1 <= msPos + 1000) {
+              // Handle mute action
+              if (item.actionType == ActionType.mute) {
+                _handleMuteEnter(item);
+                break;
+              }
+
               switch (item.skipType) {
                 case SkipType.alwaysSkip:
                   onSkip(item, isSeek: false);
@@ -112,6 +234,52 @@ mixin BlockMixin on GetxController {
         }
       });
     }
+  }
+
+  /// Update the current segment for the category pill
+  void _updateCurrentSegment(int msPos) {
+    SegmentModel? active;
+    for (final item in _segmentList) {
+      if (item.segment.contains(msPos) && !item.segment.isEq) {
+        active = item;
+        break;
+      }
+    }
+    if (currentSegment.value != active) {
+      currentSegment.value = active;
+    }
+  }
+
+  /// Enter mute segment: store volume and set to 0
+  void _handleMuteEnter(SegmentModel item) {
+    if (_activeMuteSegment != null) return;
+    _activeMuteSegment = item;
+    _preMuteVolume = PlPlayerController.getVolumeIfExists();
+    PlPlayerController.setVolumeIfExists(0);
+    if (autoPlay && Pref.blockToast) {
+      _showBlockToast('已静音${item.segmentType.shortTitle}片段');
+    }
+    if (isBlock && Pref.blockTrack) {
+      SponsorBlock.viewedVideoSponsorTime(item.uuid);
+    }
+  }
+
+  /// Check if we've exited the active mute segment
+  void _checkMuteExit(int msPos) {
+    if (_activeMuteSegment != null) {
+      if (!_activeMuteSegment!.segment.contains(msPos)) {
+        _restoreMuteVolume();
+      }
+    }
+  }
+
+  /// Restore volume after mute segment
+  void _restoreMuteVolume() {
+    if (_preMuteVolume != null) {
+      PlPlayerController.setVolumeIfExists(_preMuteVolume!);
+    }
+    _activeMuteSegment = null;
+    _preMuteVolume = null;
   }
 
   Future<void> handleSBData(List<SegmentItemModel> list) async {
@@ -144,29 +312,34 @@ mixin BlockMixin on GetxController {
                     if (segmentModel.segment.contains(currPos)) {
                       _lastBlockPos = currPos;
 
-                      switch (segmentModel.skipType) {
-                        case SkipType.alwaysSkip:
-                        case SkipType.skipOnce:
-                          segmentModel.hasSkipped = true;
-                          if (player!.state.playing) {
-                            future = onSkip(
-                              segmentModel,
-                            );
-                          } else {
-                            player!.stream.playing.firstWhere((e) {
-                              if (e) {
-                                future = onSkip(segmentModel);
-                                return true;
-                              }
-                              return false;
-                            }, orElse: () => false);
-                          }
-                          break;
-                        case SkipType.skipManually:
-                          onAddItem(segmentModel);
-                          break;
-                        default:
-                          break;
+                      // Handle mute action on initial load
+                      if (segmentModel.actionType == ActionType.mute) {
+                        _handleMuteEnter(segmentModel);
+                      } else {
+                        switch (segmentModel.skipType) {
+                          case SkipType.alwaysSkip:
+                          case SkipType.skipOnce:
+                            segmentModel.hasSkipped = true;
+                            if (player!.state.playing) {
+                              future = onSkip(
+                                segmentModel,
+                              );
+                            } else {
+                              player!.stream.playing.firstWhere((e) {
+                                if (e) {
+                                  future = onSkip(segmentModel);
+                                  return true;
+                                }
+                                return false;
+                              }, orElse: () => false);
+                            }
+                            break;
+                          case SkipType.skipManually:
+                            onAddItem(segmentModel);
+                            break;
+                          default:
+                            break;
+                        }
                       }
                     }
                   }
@@ -243,11 +416,22 @@ mixin BlockMixin on GetxController {
 
   void _skipToast(SegmentModel item) {
     if (autoPlay && Pref.blockToast) {
-      _showBlockToast('已跳过${item.segmentType.shortTitle}片段');
+      // Add unskip item instead of plain toast
+      final preSkipPos = Duration(milliseconds: currPosInMilliseconds);
+      onAddItem(UnskipItem(segment: item, preSkipPosition: preSkipPos));
     }
     if (isBlock && Pref.blockTrack) {
       SponsorBlock.viewedVideoSponsorTime(item.uuid);
     }
+    // Track local stats
+    _incrementLocalStats(item);
+  }
+
+  void _incrementLocalStats(SegmentModel item) {
+    final count = Pref.blockSkipCount;
+    Pref.setBlockSkipCount(count + 1);
+    final minutes = Pref.blockMinutesSaved;
+    Pref.setBlockMinutesSaved(minutes + item.segment.length / 1000 / 60);
   }
 
   Future<void> onSkip(
@@ -392,7 +576,46 @@ mixin BlockMixin on GetxController {
         content: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
-            children: _segmentList
+            children: [
+              if (ownerMid != null)
+                ListTile(
+                  dense: true,
+                  leading: Icon(
+                    isWhitelisted
+                        ? Icons.check_circle
+                        : Icons.check_circle_outline,
+                    size: 20,
+                  ),
+                  title: Text(
+                    isWhitelisted ? '已在白名单中' : '添加到白名单',
+                    style: const TextStyle(fontSize: 14),
+                  ),
+                  onTap: () {
+                    Get.back();
+                    toggleWhitelist();
+                  },
+                ),
+              if (sbBvid != null && sbCid != null)
+                ListTile(
+                  dense: true,
+                  leading: const Icon(Icons.link, size: 20),
+                  title: const Text(
+                    '搬运视频绑定',
+                    style: TextStyle(fontSize: 14),
+                  ),
+                  onTap: () {
+                    Get.back();
+                    showDialog(
+                      context: Get.context!,
+                      builder: (_) => PortVideoDialog(
+                        bvid: sbBvid!,
+                        cid: sbCid!,
+                        videoDuration: sbVideoDuration ?? 0,
+                      ),
+                    );
+                  },
+                ),
+              ..._segmentList
                 .map(
                   (item) => ListTile(
                     onTap: () {
@@ -426,7 +649,8 @@ mixin BlockMixin on GetxController {
                     ),
                     contentPadding: const EdgeInsets.only(left: 16, right: 8),
                     subtitle: Text(
-                      '${DurationUtils.formatDuration(item.segment.$1 / 1000)} 至 ${DurationUtils.formatDuration(item.segment.$2 / 1000)}',
+                      '${DurationUtils.formatDuration(item.segment.$1 / 1000)} 至 ${DurationUtils.formatDuration(item.segment.$2 / 1000)}'
+                      '${item.actionType == ActionType.mute ? ' (静音)' : ''}',
                       style: const TextStyle(fontSize: 13),
                     ),
                     trailing: Row(
@@ -472,8 +696,8 @@ mixin BlockMixin on GetxController {
                       ],
                     ),
                   ),
-                )
-                .toList(),
+                ),
+            ],
           ),
         ),
       ),
@@ -493,6 +717,8 @@ mixin BlockMixin on GetxController {
     videoLabel?.value = '';
     _segmentList.clear();
     segmentProgressList.clear();
+    _restoreMuteVolume();
+    currentSegment.value = null;
   }
 
   Duration? getFirstSegment([int pos = 0]) {
@@ -501,6 +727,8 @@ mixin BlockMixin on GetxController {
       if (start == end) {
         continue;
       } else if (start - pos < 100) {
+        // Skip mute segments in getFirstSegment — they don't need seeking
+        if (i.actionType == ActionType.mute) continue;
         if (switch (i.skipType) {
           .alwaysSkip => true,
           .skipOnce => !i.hasSkipped,
