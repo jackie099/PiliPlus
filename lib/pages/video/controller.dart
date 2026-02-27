@@ -94,6 +94,41 @@ class VideoDetailController extends GetxController
   late final isUgc = videoType == VideoType.ugc;
   VideoType? _actualVideoType;
 
+  @override
+  int? get ownerMid {
+    try {
+      if (isUgc) {
+        return Get.find<UgcIntroController>(tag: heroTag)
+            .videoDetail
+            .value
+            .owner
+            ?.mid;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  @override
+  String? get ownerName {
+    try {
+      if (isUgc) {
+        return Get.find<UgcIntroController>(tag: heroTag)
+            .videoDetail
+            .value
+            .owner
+            ?.name;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  @override
+  String? get sbBvid => bvid;
+  @override
+  int? get sbCid => cid.value;
+  @override
+  int? get sbVideoDuration => timeLength != null ? timeLength! ~/ 1000 : null;
+
   // 页面来源 稍后再看 收藏夹
   late bool isPlayAll;
   late SourceType sourceType;
@@ -509,6 +544,16 @@ class VideoDetailController extends GetxController
   @override
   Widget buildItem(Object item, Animation<double> animation) {
     final theme = Get.theme;
+
+    String text;
+    if (item is UnskipItem) {
+      text = '已跳过${item.segment.segmentType.shortTitle}片段  撤销';
+    } else if (item is SegmentModel) {
+      text = '跳过: ${item.segmentType.shortTitle}';
+    } else {
+      text = '上次看到第${(item as int) + 1}P，点击跳转';
+    }
+
     return Align(
       alignment: Alignment.centerLeft,
       child: SlideTransition(
@@ -533,11 +578,13 @@ class VideoDetailController extends GetxController
               textColor: theme.colorScheme.onSecondaryContainer,
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               fontSize: 14,
-              text: item is SegmentModel
-                  ? '跳过: ${item.segmentType.shortTitle}'
-                  : '上次看到第${(item as int) + 1}P，点击跳转',
+              text: text,
               onTap: (_) {
-                if (item is int) {
+                if (item is UnskipItem) {
+                  // Unskip: seek back to pre-skip position
+                  seekTo(item.preSkipPosition, isSeek: false);
+                  onRemoveItem(listData.indexOf(item), item);
+                } else if (item is int) {
                   try {
                     UgcIntroController ugcIntroController =
                         Get.find<UgcIntroController>(tag: heroTag);
@@ -771,7 +818,11 @@ class VideoDetailController extends GetxController
     }
     isQuerying = true;
     if (plPlayerController.enableSponsorBlock && isBlock && !fromReset) {
-      querySponsorBlock(bvid: bvid, cid: cid.value);
+      querySponsorBlock(bvid: bvid, cid: cid.value).then((_) {
+        if (!isClosed && Pref.enableDanmakuTimeParsing) {
+          parseDanmakuPOI(cid: cid.value, videoDuration: timeLength ?? 0);
+        }
+      });
     }
     if (plPlayerController.cacheVideoQa == null) {
       final isWiFi = await Utils.isWiFi;

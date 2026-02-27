@@ -661,12 +661,13 @@ class _UgcIntroPanelState extends State<UgcIntroPanel> {
                               final cid = videoDetailCtr.cid.value;
 
                               SmartDialog.showLoading();
-                              final hasPortVideo =
+                              final portData =
                                   (await SponsorBlock.getPortVideo(
                                     bvid: bvid,
                                     cid: cid,
-                                  )).dataOrNull ==
-                                  ytbId;
+                                  )).dataOrNull;
+                              final hasPortVideo =
+                                  portData?['ytbID'] == ytbId;
                               SmartDialog.dismiss();
 
                               if (!mounted) return;
