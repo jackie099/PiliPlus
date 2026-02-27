@@ -37,6 +37,8 @@ class _SponsorBlockPageState extends State<SponsorBlockPage> {
   bool _blockToast = Pref.blockToast;
   String _blockServer = Pref.blockServer;
   bool _blockTrack = Pref.blockTrack;
+  bool _enableDynSponsorDetection = Pref.enableDynSponsorDetection;
+  bool _enableDanmakuTimeParsing = Pref.enableDanmakuTimeParsing;
   final _serverStatus = Rxn<bool>();
   final _userInfo = LoadingState<UserInfo>.loading().obs;
 
@@ -64,6 +66,8 @@ class _SponsorBlockPageState extends State<SponsorBlockPage> {
       'viewCount',
       'minutesSaved',
       'segmentCount',
+      'warnings',
+      'warningReason',
     ], userId: _userId);
   }
 
@@ -457,6 +461,315 @@ class _SponsorBlockPageState extends State<SponsorBlockPage> {
     );
   }
 
+  Widget _warningBanner(ThemeData theme) => Obx(
+    () {
+      if (_userInfo.value case Success<UserInfo>(:final response)) {
+        if (response.warningReason != null) {
+          return Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.errorContainer,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.warning_amber_rounded,
+                    color: theme.colorScheme.error),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    '警告: ${response.warningReason}',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: theme.colorScheme.onErrorContainer,
+                    ),
+                  ),
+                ),
+                TextButton(
+                  onPressed: () async {
+                    final res = await SponsorBlock.warnUser();
+                    SmartDialog.showToast(
+                      res.isSuccess ? '已确认' : '确认失败: $res',
+                    );
+                    if (res.isSuccess) {
+                      _userInfo.value = LoadingState.loading();
+                      _getUserInfo();
+                    }
+                  },
+                  child: const Text('知道了'),
+                ),
+              ],
+            ),
+          );
+        }
+      }
+      return const SizedBox.shrink();
+    },
+  );
+
+  Widget _whitelistItem(
+    ThemeData theme,
+    TextStyle titleStyle,
+    TextStyle subTitleStyle,
+  ) => Builder(
+    builder: (context) {
+      final channels = Pref.blockWhitelistedChannels;
+      return ListTile(
+        dense: true,
+        onTap: () {
+          showDialog(
+            context: context,
+            builder: (_) => StatefulBuilder(
+              builder: (context, setDialogState) {
+                final list = Pref.blockWhitelistedChannels;
+                return AlertDialog(
+                  title: Text('频道白名单', style: titleStyle),
+                  content: SizedBox(
+                    width: double.maxFinite,
+                    child: list.isEmpty
+                        ? const Text('暂无白名单频道')
+                        : ListView.builder(
+                            shrinkWrap: true,
+                            itemCount: list.length,
+                            itemBuilder: (_, index) {
+                              final item = list[index];
+                              return ListTile(
+                                dense: true,
+                                title: Text(
+                                  item['name']?.toString() ?? '',
+                                  style: const TextStyle(fontSize: 14),
+                                ),
+                                trailing: IconButton(
+                                  icon: const Icon(Icons.delete_outline,
+                                      size: 20),
+                                  onPressed: () {
+                                    list.removeAt(index);
+                                    Pref.setBlockWhitelistedChannels(list);
+                                    setDialogState(() {});
+                                    (context as Element).markNeedsBuild();
+                                  },
+                                ),
+                              );
+                            },
+                          ),
+                  ),
+                  actions: [
+                    if (list.isNotEmpty)
+                      TextButton(
+                        onPressed: () {
+                          Pref.setBlockWhitelistedChannels([]);
+                          setDialogState(() {});
+                          (context as Element).markNeedsBuild();
+                        },
+                        child: Text(
+                          '清除全部',
+                          style: TextStyle(color: theme.colorScheme.error),
+                        ),
+                      ),
+                    TextButton(
+                      onPressed: Get.back,
+                      child: const Text('关闭'),
+                    ),
+                  ],
+                );
+              },
+            ),
+          );
+        },
+        title: Text('频道白名单', style: titleStyle),
+        subtitle: Text(
+          '白名单中的频道不会加载片段',
+          style: subTitleStyle,
+        ),
+        trailing: Text(
+          '${channels.length}个频道',
+          style: const TextStyle(fontSize: 13),
+        ),
+      );
+    },
+  );
+
+  Widget _localStatsItem(TextStyle titleStyle, TextStyle subTitleStyle) {
+    final skipCount = Pref.blockSkipCount;
+    final minutesSaved = Pref.blockMinutesSaved;
+    return ListTile(
+      dense: true,
+      title: Text('本地统计', style: titleStyle),
+      subtitle: Text(
+        '已跳过 $skipCount 个片段，节省 ${minutesSaved.toStringAsFixed(1)} 分钟',
+        style: subTitleStyle,
+      ),
+    );
+  }
+
+  Widget _dynSponsorDetectionItem(
+    ThemeData theme,
+    TextStyle titleStyle,
+    TextStyle subTitleStyle,
+  ) => Builder(
+    builder: (context) {
+      void update() {
+        _enableDynSponsorDetection = !_enableDynSponsorDetection;
+        setting.put(
+          SettingBoxKey.enableDynSponsorDetection,
+          _enableDynSponsorDetection,
+        );
+        (context as Element).markNeedsBuild();
+      }
+
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ListTile(
+            dense: true,
+            onTap: update,
+            title: Text('动态赞助检测', style: titleStyle),
+            subtitle: Text(
+              '自动检测动态中的赞助/广告内容',
+              style: subTitleStyle,
+            ),
+            trailing: Transform.scale(
+              alignment: Alignment.centerRight,
+              scale: 0.8,
+              child: Switch(
+                value: _enableDynSponsorDetection,
+                onChanged: (val) => update(),
+              ),
+            ),
+          ),
+          if (_enableDynSponsorDetection)
+            ListTile(
+              dense: true,
+              onTap: () {
+                _textController.text = Pref.blockDynSponsorKeywords;
+                showDialog(
+                  context: context,
+                  builder: (_) => AlertDialog(
+                    title: Text('自定义关键词正则', style: titleStyle),
+                    content: TextFormField(
+                      controller: _textController,
+                      autofocus: true,
+                      decoration: const InputDecoration(
+                        hintText: '留空使用默认关键词',
+                      ),
+                      maxLines: 3,
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: Get.back,
+                        child: Text(
+                          '取消',
+                          style: TextStyle(color: theme.colorScheme.outline),
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: () {
+                          Get.back();
+                          setting.put(
+                            SettingBoxKey.blockDynSponsorKeywords,
+                            _textController.text,
+                          );
+                        },
+                        child: const Text('确定'),
+                      ),
+                    ],
+                  ),
+                );
+              },
+              title: Text('自定义关键词', style: subTitleStyle),
+              trailing: const Icon(Icons.chevron_right, size: 20),
+            ),
+        ],
+      );
+    },
+  );
+
+  Widget _danmakuTimeParsingItem(TextStyle titleStyle) => Builder(
+    builder: (context) {
+      void update() {
+        _enableDanmakuTimeParsing = !_enableDanmakuTimeParsing;
+        setting.put(
+          SettingBoxKey.enableDanmakuTimeParsing,
+          _enableDanmakuTimeParsing,
+        );
+        (context as Element).markNeedsBuild();
+      }
+
+      return ListTile(
+        dense: true,
+        onTap: update,
+        title: Text('弹幕时间解析', style: titleStyle),
+        trailing: Transform.scale(
+          alignment: Alignment.centerRight,
+          scale: 0.8,
+          child: Switch(
+            value: _enableDanmakuTimeParsing,
+            onChanged: (val) => update(),
+          ),
+        ),
+      );
+    },
+  );
+
+  Widget _usernameItem(
+    ThemeData theme,
+    TextStyle titleStyle,
+    TextStyle subTitleStyle,
+  ) => Builder(
+    builder: (context) {
+      return ListTile(
+        dense: true,
+        onTap: () async {
+          SmartDialog.showLoading();
+          final result = await SponsorBlock.getUsername();
+          SmartDialog.dismiss();
+          final currentName = result.dataOrNull ?? '';
+          _textController.text = currentName;
+          if (!context.mounted) return;
+          showDialog(
+            context: context,
+            builder: (_) => AlertDialog(
+              title: Text('显示名称', style: titleStyle),
+              content: TextFormField(
+                controller: _textController,
+                autofocus: true,
+                decoration: const InputDecoration(
+                  hintText: '输入显示名称',
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: Get.back,
+                  child: Text(
+                    '取消',
+                    style: TextStyle(color: theme.colorScheme.outline),
+                  ),
+                ),
+                TextButton(
+                  onPressed: () async {
+                    final name = _textController.text.trim();
+                    if (name.isNotEmpty) {
+                      Get.back();
+                      final res = await SponsorBlock.setUsername(name);
+                      SmartDialog.showToast(
+                        res.isSuccess ? '设置成功' : '设置失败: $res',
+                      );
+                    }
+                  },
+                  child: const Text('确定'),
+                ),
+              ],
+            ),
+          );
+        },
+        title: Text('显示名称', style: titleStyle),
+        subtitle: Text('设置您的公开显示名称', style: subTitleStyle),
+      );
+    },
+  );
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -487,6 +800,7 @@ class _SponsorBlockPageState extends State<SponsorBlockPage> {
       appBar: AppBar(title: const Text('空降助手')),
       body: CustomScrollView(
         slivers: [
+          SliverToBoxAdapter(child: _warningBanner(theme)),
           dividerL,
           SliverToBoxAdapter(child: _serverStatusItem(theme, titleStyle)),
           dividerL,
@@ -510,6 +824,18 @@ class _SponsorBlockPageState extends State<SponsorBlockPage> {
           ),
           dividerL,
           SliverToBoxAdapter(
+            child: _whitelistItem(theme, titleStyle, subTitleStyle),
+          ),
+          sliverDivider,
+          SliverToBoxAdapter(
+            child: _localStatsItem(titleStyle, subTitleStyle),
+          ),
+          dividerL,
+          SliverToBoxAdapter(
+            child: _usernameItem(theme, titleStyle, subTitleStyle),
+          ),
+          sliverDivider,
+          SliverToBoxAdapter(
             child: _userIdItem(theme, titleStyle, subTitleStyle),
           ),
           sliverDivider,
@@ -518,6 +844,14 @@ class _SponsorBlockPageState extends State<SponsorBlockPage> {
           ),
           dividerL,
           SliverToBoxAdapter(child: _aboutItem(titleStyle, subTitleStyle)),
+          dividerL,
+          SliverToBoxAdapter(
+            child: _dynSponsorDetectionItem(theme, titleStyle, subTitleStyle),
+          ),
+          sliverDivider,
+          SliverToBoxAdapter(
+            child: _danmakuTimeParsingItem(titleStyle),
+          ),
           dividerL,
           SliverToBoxAdapter(
             child: SizedBox(
