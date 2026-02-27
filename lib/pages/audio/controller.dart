@@ -225,7 +225,11 @@ class AudioController extends GetxController
       try {
         final bvid = IdUtils.av2bv(oid.toInt());
         final cid = subId.first.toInt();
-        querySponsorBlock(bvid: bvid, cid: cid);
+        querySponsorBlock(bvid: bvid, cid: cid).then((_) {
+          if (!isClosed && Pref.enableDanmakuTimeParsing) {
+            parseDanmakuPOI(cid: cid, videoDuration: timeLength ?? 0);
+          }
+        });
       } catch (_) {}
     }
   }
