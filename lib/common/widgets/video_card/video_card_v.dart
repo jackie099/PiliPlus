@@ -16,6 +16,7 @@ import 'package:PiliPlus/utils/id_utils.dart';
 import 'package:PiliPlus/utils/page_utils.dart';
 import 'package:PiliPlus/utils/platform_utils.dart';
 import 'package:PiliPlus/utils/utils.dart';
+import 'package:PiliPlus/services/video_label_service.dart';
 import 'package:flutter/material.dart' hide LayoutBuilder;
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:intl/intl.dart';
@@ -110,6 +111,23 @@ class VideoCardV extends StatelessWidget {
                               text: DurationUtils.formatDuration(
                                 videoItem.duration,
                               ),
+                            ),
+                          if (videoItem.goto == 'av')
+                            FutureBuilder<String?>(
+                              future: VideoLabelService.instance
+                                  .getLabel(videoItem.bvid),
+                              builder: (context, snapshot) {
+                                if (snapshot.data == null) {
+                                  return const SizedBox.shrink();
+                                }
+                                return PBadge(
+                                  top: 6,
+                                  left: 7,
+                                  size: PBadgeSize.small,
+                                  type: PBadgeType.primary,
+                                  text: snapshot.data!,
+                                );
+                              },
                             ),
                         ],
                       );
