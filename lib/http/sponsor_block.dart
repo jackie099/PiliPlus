@@ -5,12 +5,15 @@ import 'package:PiliPlus/common/constants.dart';
 import 'package:PiliPlus/http/init.dart';
 import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/http/sponsor_block_api.dart';
+import 'package:PiliPlus/http/sponsor_block_cache.dart';
 import 'package:PiliPlus/models/common/sponsor_block/post_segment_model.dart';
 import 'package:PiliPlus/models/common/sponsor_block/segment_type.dart';
 import 'package:PiliPlus/models_new/sponsor_block/segment_item.dart';
 import 'package:PiliPlus/models_new/sponsor_block/user_info.dart';
+import 'package:PiliPlus/models_new/sponsor_block/video_label.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:PiliPlus/utils/utils.dart';
+import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart' show kDebugMode;
 
@@ -28,6 +31,26 @@ abstract final class SponsorBlock {
           },
     validateStatus: (status) => true,
   );
+
+  // Caches
+  static final _segmentCache = SponsorBlockCache<List<SegmentItemModel>>(
+    maxEntries: 1000,
+  );
+  static final _labelCache = SponsorBlockCache<List<VideoLabelModel>>(
+    maxEntries: 5000,
+  );
+
+  /// SHA-256 hash prefix (first 4 hex chars) for privacy
+  static String _hashPrefix(String bvid) {
+    final bytes = utf8.encode(bvid);
+    final digest = sha256.convert(bytes);
+    return digest.toString().substring(0, 4);
+  }
+
+  static void clearCache() {
+    _segmentCache.clear();
+    _labelCache.clear();
+  }
 
   static Error getErrMsg(Response res) {
     String statusMessage = switch (res.statusCode) {
@@ -53,14 +76,22 @@ abstract final class SponsorBlock {
 
   static String _api(String url) => '$blockServer/api/$url';
 
+  /// Uses hash-prefix privacy pattern: GET /api/skipSegments/{hash4}
+  /// Filters results locally by bvid
   static Future<LoadingState<List<SegmentItemModel>>> getSkipSegments({
     required String bvid,
     required int cid,
   }) async {
+    final cacheKey = '$bvid:$cid';
+    final cached = _segmentCache.get(cacheKey);
+    if (cached != null) {
+      return Success(cached);
+    }
+
+    final hashPrefix = _hashPrefix(bvid);
     final res = await Request().get(
-      _api(SponsorBlockApi.skipSegments),
+      _api('${SponsorBlockApi.skipSegments}/$hashPrefix'),
       queryParameters: {
-        'videoID': bvid,
         'cid': cid,
       },
       options: options,
@@ -68,7 +99,22 @@ abstract final class SponsorBlock {
 
     if (res.statusCode == 200) {
       if (res.data case final List list) {
-        return Success(list.map((i) => SegmentItemModel.fromJson(i)).toList());
+        // Hash-prefix response: [{videoID: "...", segments: [...]}, ...]
+        final List<SegmentItemModel> segments = [];
+        for (final item in list) {
+          if (item case final Map<String, dynamic> map) {
+            final videoID = map['videoID'];
+            if (videoID == bvid) {
+              if (map['segments'] case final List segList) {
+                segments.addAll(
+                  segList.map((i) => SegmentItemModel.fromJson(i)),
+                );
+              }
+            }
+          }
+        }
+        _segmentCache.put(cacheKey, segments);
+        return Success(segments);
       }
     }
     return getErrMsg(res);
@@ -164,39 +210,41 @@ abstract final class SponsorBlock {
 
     if (res.statusCode == 200) {
       if (res.data case final List list) {
+        // Invalidate cache after posting
+        _segmentCache.invalidate('$bvid:$cid');
         return Success(list.map((i) => SegmentItemModel.fromJson(i)).toList());
       }
     }
     return getErrMsg(res);
   }
 
-  /// {
-  ///   "bvID": string,     // B站视频BVID
-  ///   "cid": string,      // 视频CID
-  ///   "ytbID": string,    // YouTube视频ID
-  ///   "UUID": string,     // 绑定记录的UUID（不是视频中片段的UUID，是绑定记录本身的UUID）
-  ///   "votes": int,       // 绑定记录的投票数
-  ///   "locked": int,      // 绑定记录是否锁定
-  /// }
-  /// TODO: show port video info dialog
-  static Future<LoadingState<String>> getPortVideo({
+  /// Uses hash-prefix privacy pattern: GET /api/portVideo/{hash4}
+  static Future<LoadingState<Map<String, dynamic>>> getPortVideo({
     required String bvid,
     required int cid,
   }) async {
+    final hashPrefix = _hashPrefix(bvid);
     final res = await Request().get(
-      _api(SponsorBlockApi.portVideo),
+      _api('${SponsorBlockApi.portVideo}/$hashPrefix'),
       queryParameters: {
-        'videoID': bvid,
         'cid': cid.toString(),
       },
       options: options,
     );
 
     if (res.statusCode == 200) {
-      if (res.data case final Map<String, dynamic> data) {
-        if (data['ytbID'] case String ytbId) {
-          return Success(ytbId);
+      if (res.data case final List list) {
+        // Hash-prefix response: [{bvID: "...", ...}, ...]
+        for (final item in list) {
+          if (item case final Map<String, dynamic> map) {
+            if (map['bvID'] == bvid) {
+              return Success(map);
+            }
+          }
         }
+      } else if (res.data case final Map<String, dynamic> data) {
+        // Direct response format
+        return Success(data);
       }
     }
     return getErrMsg(res);
@@ -228,5 +276,162 @@ abstract final class SponsorBlock {
       }
     }
     return getErrMsg(res);
+  }
+
+  /// GET /api/videoLabels/{hash4} — hash-prefix privacy
+  static Future<LoadingState<List<VideoLabelModel>>> getVideoLabels(
+    String bvid,
+  ) async {
+    final cached = _labelCache.get(bvid);
+    if (cached != null) {
+      return Success(cached);
+    }
+
+    final hashPrefix = _hashPrefix(bvid);
+    final res = await Request().get(
+      _api('${SponsorBlockApi.videoLabels}/$hashPrefix'),
+      options: options,
+    );
+
+    if (res.statusCode == 200) {
+      if (res.data case final List list) {
+        final List<VideoLabelModel> labels = [];
+        for (final item in list) {
+          if (item case final Map<String, dynamic> map) {
+            if (map['videoID'] == bvid) {
+              labels.add(VideoLabelModel.fromJson(map));
+            }
+          }
+        }
+        _labelCache.put(bvid, labels);
+        return Success(labels);
+      }
+    }
+    return getErrMsg(res);
+  }
+
+  /// GET /api/lockCategories/{hash4} — hash-prefix privacy
+  static Future<LoadingState<List<String>>> getLockCategories(
+    String bvid,
+  ) async {
+    final hashPrefix = _hashPrefix(bvid);
+    final res = await Request().get(
+      _api('${SponsorBlockApi.lockCategories}/$hashPrefix'),
+      options: options,
+    );
+
+    if (res.statusCode == 200) {
+      if (res.data case final List list) {
+        for (final item in list) {
+          if (item case final Map<String, dynamic> map) {
+            if (map['videoID'] == bvid) {
+              if (map['categories'] case final List cats) {
+                return Success(cats.cast<String>());
+              }
+            }
+          }
+        }
+      }
+    }
+    return getErrMsg(res);
+  }
+
+  /// GET /api/chapterNames
+  static Future<LoadingState<List<String>>> getChapterNames() async {
+    final res = await Request().get(
+      _api(SponsorBlockApi.chapterNames),
+      options: options,
+    );
+
+    if (res.statusCode == 200) {
+      if (res.data case final List list) {
+        return Success(list.cast<String>());
+      }
+    }
+    return getErrMsg(res);
+  }
+
+  /// POST /api/setUsername
+  static Future<LoadingState<Null>> setUsername(String username) async {
+    final res = await Request().post(
+      _api(SponsorBlockApi.setUsername),
+      queryParameters: {
+        'userID': Pref.blockUserID,
+        'username': username,
+      },
+      options: options,
+    );
+    return res.statusCode == 200 ? const Success(null) : getErrMsg(res);
+  }
+
+  /// GET /api/getUsername
+  static Future<LoadingState<String>> getUsername() async {
+    final res = await Request().get(
+      _api(SponsorBlockApi.getUsername),
+      queryParameters: {
+        'userID': Pref.blockUserID,
+      },
+      options: options,
+    );
+
+    if (res.statusCode == 200) {
+      if (res.data case final Map<String, dynamic> data) {
+        if (data['userName'] case String name) {
+          return Success(name);
+        }
+      }
+    }
+    return getErrMsg(res);
+  }
+
+  /// POST /api/votePort
+  static Future<LoadingState<Null>> votePort({
+    required String uuid,
+    required String bvid,
+    required int type,
+  }) async {
+    final res = await Request().post(
+      _api(SponsorBlockApi.votePort),
+      queryParameters: {
+        'UUID': uuid,
+        'bvID': bvid,
+        'userID': Pref.blockUserID,
+        'type': type,
+      },
+      options: options,
+    );
+    return res.statusCode == 200 ? const Success(null) : getErrMsg(res);
+  }
+
+  /// POST /api/updatePortedSegments
+  static Future<LoadingState<Null>> updatePortedSegments({
+    required String videoID,
+    required String uuid,
+    required int cid,
+  }) async {
+    final res = await Request().post(
+      _api(SponsorBlockApi.updatePortedSegments),
+      queryParameters: {
+        'videoID': videoID,
+        'UUID': uuid,
+        'cid': cid,
+        'userID': Pref.blockUserID,
+      },
+      options: options,
+    );
+    return res.statusCode == 200 ? const Success(null) : getErrMsg(res);
+  }
+
+  /// POST /api/warnUser — acknowledge warning
+  static Future<LoadingState<Null>> warnUser() async {
+    final res = await Request().post(
+      _api(SponsorBlockApi.warnUser),
+      data: {
+        'userID': Pref.blockUserID,
+        'enabled': false,
+      },
+      options: options,
+    );
+    return res.statusCode == 200 ? const Success(null) : getErrMsg(res);
   }
 }
