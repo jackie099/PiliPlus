@@ -1,3 +1,4 @@
+import 'package:PiliPlus/models/common/sponsor_block/action_type.dart';
 import 'package:PiliPlus/models/common/sponsor_block/segment_type.dart';
 import 'package:PiliPlus/models/common/sponsor_block/skip_type.dart';
 import 'package:PiliPlus/models_new/sponsor_block/segment_item.dart';
@@ -10,11 +11,13 @@ class SegmentModel implements Comparable<SegmentModel> {
     required this.segmentType,
     required this.segment,
     required this.skipType,
+    required this.actionType,
   });
   final String uuid;
   final SegmentType segmentType;
   final (int, int) segment;
   final SkipType skipType;
+  final ActionType actionType;
   bool hasSkipped = false;
 
   factory SegmentModel.fromItemModel(
@@ -23,6 +26,9 @@ class SegmentModel implements Comparable<SegmentModel> {
   ) {
     final segmentType = SegmentType.values.byName(model.category);
     final segment = (model.segment[0], model.segment[1]);
+    final actionType = model.actionType != null
+        ? ActionType.values.byName(model.actionType!)
+        : ActionType.skip;
     SkipType skipType;
     if (config != null) {
       skipType = config.blockSettings[segmentType.index].second;
@@ -40,6 +46,7 @@ class SegmentModel implements Comparable<SegmentModel> {
       segmentType: segmentType,
       segment: segment,
       skipType: skipType,
+      actionType: actionType,
     );
   }
 

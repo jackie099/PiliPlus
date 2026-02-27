@@ -182,7 +182,13 @@ abstract final class SettingBoxKey {
       blockUserID = 'blockUserID',
       blockToast = 'blockToast',
       blockServer = 'blockServer',
-      blockTrack = 'blockTrack';
+      blockTrack = 'blockTrack',
+      blockSkipCount = 'blockSkipCount',
+      blockMinutesSaved = 'blockMinutesSaved',
+      blockWhitelistedChannels = 'blockWhitelistedChannels',
+      enableDynSponsorDetection = 'enableDynSponsorDetection',
+      blockDynSponsorKeywords = 'blockDynSponsorKeywords',
+      enableDanmakuTimeParsing = 'enableDanmakuTimeParsing';
 
   static const String enableShowDanmaku = 'enableShowDanmaku',
       enableShowLiveDanmaku = 'enableShowLiveDanmaku',
