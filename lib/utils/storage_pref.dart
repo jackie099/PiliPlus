@@ -751,6 +751,38 @@ abstract final class Pref {
   static bool get enableSponsorBlock =>
       _setting.get(SettingBoxKey.enableSponsorBlock, defaultValue: false);
 
+  static int get blockSkipCount =>
+      _setting.get(SettingBoxKey.blockSkipCount, defaultValue: 0);
+
+  static void setBlockSkipCount(int value) =>
+      _setting.put(SettingBoxKey.blockSkipCount, value);
+
+  static double get blockMinutesSaved =>
+      _setting.get(SettingBoxKey.blockMinutesSaved, defaultValue: 0.0);
+
+  static void setBlockMinutesSaved(double value) =>
+      _setting.put(SettingBoxKey.blockMinutesSaved, value);
+
+  static List<Map<String, dynamic>> get blockWhitelistedChannels {
+    final raw = _setting.get(SettingBoxKey.blockWhitelistedChannels);
+    if (raw is List) {
+      return raw.cast<Map<String, dynamic>>();
+    }
+    return [];
+  }
+
+  static void setBlockWhitelistedChannels(List<Map<String, dynamic>> value) =>
+      _setting.put(SettingBoxKey.blockWhitelistedChannels, value);
+
+  static bool get enableDynSponsorDetection =>
+      _setting.get(SettingBoxKey.enableDynSponsorDetection, defaultValue: false);
+
+  static String get blockDynSponsorKeywords =>
+      _setting.get(SettingBoxKey.blockDynSponsorKeywords, defaultValue: '');
+
+  static bool get enableDanmakuTimeParsing =>
+      _setting.get(SettingBoxKey.enableDanmakuTimeParsing, defaultValue: false);
+
   static bool get enableHA =>
       _setting.get(SettingBoxKey.enableHA, defaultValue: true);
 
