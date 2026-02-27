@@ -24,6 +24,7 @@ class PlayerFocus extends StatelessWidget {
     this.canPlay,
     this.onSkipSegment,
     this.onRefresh,
+    this.onShowSBDetail,
   });
 
   final Widget child;
@@ -33,6 +34,7 @@ class PlayerFocus extends StatelessWidget {
   final ValueGetter<bool>? canPlay;
   final ValueGetter<bool>? onSkipSegment;
   final VoidCallback? onRefresh;
+  final VoidCallback? onShowSBDetail;
 
   static bool _shouldHandle(LogicalKeyboardKey logicalKey) {
     return logicalKey == LogicalKeyboardKey.tab ||
@@ -279,6 +281,14 @@ class PlayerFocus extends StatelessWidget {
                 SmartDialog.showToast('已经是最后一集了');
               }
             }
+            return true;
+
+          case LogicalKeyboardKey.keyB:
+            onShowSBDetail?.call();
+            return true;
+
+          case LogicalKeyboardKey.keyN:
+            onSkipSegment?.call();
             return true;
         }
       }
