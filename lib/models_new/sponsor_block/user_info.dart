@@ -5,17 +5,22 @@ class UserInfo {
   final int viewCount;
   final double minutesSaved;
   final int segmentCount;
+  final String? warningReason;
 
   const UserInfo({
     required this.viewCount,
     required this.minutesSaved,
     required this.segmentCount,
+    this.warningReason,
   });
 
   factory UserInfo.fromJson(Map<String, dynamic> json) => UserInfo(
-    viewCount: json['viewCount'],
-    minutesSaved: (json['minutesSaved'] as num).toDouble(),
-    segmentCount: json['segmentCount'],
+    viewCount: json['viewCount'] ?? 0,
+    minutesSaved: (json['minutesSaved'] as num?)?.toDouble() ?? 0,
+    segmentCount: json['segmentCount'] ?? 0,
+    warningReason: json['warnings'] is int && json['warnings'] > 0
+        ? (json['warningReason'] ?? '未知原因').toString()
+        : null,
   );
 
   @override
