@@ -787,6 +787,9 @@ abstract final class Pref {
   static bool get enableDanmakuTimeParsing =>
       _setting.get(SettingBoxKey.enableDanmakuTimeParsing, defaultValue: false);
 
+  static bool get sbIntroShown =>
+      _setting.get(SettingBoxKey.sbIntroShown, defaultValue: false);
+
   static bool get enableHA =>
       _setting.get(SettingBoxKey.enableHA, defaultValue: true);
 
