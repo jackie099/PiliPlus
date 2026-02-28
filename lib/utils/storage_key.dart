@@ -187,7 +187,8 @@ abstract final class SettingBoxKey {
       blockWhitelistedChannels = 'blockWhitelistedChannels',
       enableDynSponsorDetection = 'enableDynSponsorDetection',
       blockDynSponsorKeywords = 'blockDynSponsorKeywords',
-      enableDanmakuTimeParsing = 'enableDanmakuTimeParsing';
+      enableDanmakuTimeParsing = 'enableDanmakuTimeParsing',
+      sbIntroShown = 'sbIntroShown';
 
   static const String enableShowDanmaku = 'enableShowDanmaku',
       enableShowLiveDanmaku = 'enableShowLiveDanmaku',
