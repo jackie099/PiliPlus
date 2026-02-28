@@ -18,6 +18,7 @@ import 'package:PiliPlus/utils/storage.dart';
 import 'package:PiliPlus/utils/storage_key.dart';
 import 'package:PiliPlus/utils/storage_pref.dart';
 import 'package:PiliPlus/utils/update.dart';
+import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:collection/collection.dart';
 import 'package:easy_debounce/easy_throttle.dart';
 import 'package:flutter/material.dart';
@@ -75,6 +76,9 @@ class MainController extends GetxController
     if (Pref.autoUpdate) {
       Update.checkUpdate();
     }
+    if (!Pref.sbIntroShown) {
+      _showSBIntro();
+    }
 
     setNavBarConfig();
 
@@ -116,6 +120,53 @@ class MainController extends GetxController
         queryUnreadMsg();
       }
     }
+  }
+
+  void _showSBIntro() {
+    SmartDialog.show(
+      animationType: SmartAnimationType.centerFade_otherSlide,
+      builder: (context) {
+        final theme = Theme.of(context);
+        return AlertDialog(
+          title: Row(
+            children: [
+              Icon(
+                Icons.shield_outlined,
+                color: theme.colorScheme.primary,
+              ),
+              const SizedBox(width: 8),
+              const Text('空降助手'),
+            ],
+          ),
+          content: const Text(
+            '空降助手 (SponsorBlock) 可自动跳过视频中的赞助广告片段，'
+            '片段数据由社区用户贡献。\n\n'
+            '启用后将通过哈希前缀查询发送视频ID的部分哈希值到外部服务器，'
+            '以匹配已标记的片段，不会暴露您的完整观看记录。',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                GStorage.setting.put(SettingBoxKey.sbIntroShown, true);
+                SmartDialog.dismiss();
+              },
+              child: Text(
+                '暂不启用',
+                style: TextStyle(color: theme.colorScheme.outline),
+              ),
+            ),
+            TextButton(
+              onPressed: () {
+                GStorage.setting.put(SettingBoxKey.sbIntroShown, true);
+                GStorage.setting.put(SettingBoxKey.enableSponsorBlock, true);
+                SmartDialog.dismiss();
+              },
+              child: const Text('启用'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   Future<int> _msgUnread() async {
